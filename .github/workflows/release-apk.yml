@@ -1,0 +1,63 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 7.3 / Gradle 7.6 in android/ need Java 17 and a Flutter release
+      # that still accepts them: newer Flutter versions refuse old AGP.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Compute version from tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            NAME="0.0.0-dev"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        run: >
+          flutter build apk --release
+          --build-name=${{ steps.version.outputs.name }}
+          --build-number=${{ steps.version.outputs.number }}
+
+      - name: Rename APK
+        run: mv build/app/outputs/flutter-apk/app-release.apk roll-dice-${{ steps.version.outputs.name }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roll-dice-apk
+          path: roll-dice-*.apk
+
+      - name: Attach APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: roll-dice-*.apk
+          generate_release_notes: true
